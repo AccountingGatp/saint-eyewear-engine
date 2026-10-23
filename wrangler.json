@@ -1,16 +1,11 @@
 {
-  "name": "saint-eyewear",
-  "pages_build_output_dir": "./dist",
+  "name": "saint-eyewear-engine123",
+  "main": "./dist/_worker.js",
   "compatibility_date": "2026-10-23",
   "services": [
     {
       "binding": "ENGINE",
       "service": "saint-eyewear-engine"
     }
-  ],
-  "env": {
-    "preview": {
-      "services": []
-    }
-  }
+  ]
 }
