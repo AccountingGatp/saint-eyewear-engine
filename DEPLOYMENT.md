@@ -1,5 +1,26 @@
 # GitHub to Cloudflare deployment
 
+## Live Worker deployment (current architecture)
+
+The authenticated web gateway is the Cloudflare Worker `saint-eyewear-engine123`, with a private service binding `ENGINE` pointing at `saint-eyewear-engine`. The web gateway and private Python Worker are **separate deployments**.
+
+The former **"Unknown operation"** error came from the web gateway calling Supabase's undeployed `detected` operation. The corrected web gateway now calls authenticated `POST /api/inspect` **before** creating the run, and calls only Supabase actions supported by the deployed `saint-workspace` function. No `detected` Supabase operation is needed.
+
+After obtaining an up-to-date local checkout of the `main` branch, a team member authorized for this Cloudflare account can deploy the **web gateway** by running:
+
+```sh
+npm run check
+npm test
+npm run build
+npx wrangler deploy --config wrangler.json
+```
+
+Do not replace the existing `GATEWAY_SECRET`; confirm it remains bound as `secret_text` and `ENGINE` remains a service binding to `saint-eyewear-engine`. The Python backend is deployed separately with the required Python Worker compatibility flags and is not included in the web gateway build.
+
+Confirm all GitHub Actions checks pass on the exact commit being deployed. Finally, with an authorized staff account, upload the four original August workbooks together and verify that the application detects `2026-08`, that processing reaches validation (no HTTP 404 or "Unknown operation"), and that invalid Xero subtotal cells create **SOURCE Block** exceptions. Do not issue a client report while any Block remains.
+
+**Data integrity:** The August Xero P&L input has zero subtotal cells despite nonzero account balances. The revised issued Word report also differs from the underlying Excel account totals. The app must flag these differences for review rather than silently substituting the revised Word figures.
+
 ## Current status
 
 Application source and a locally tested Cloudflare Pages build are prepared in this repository. No live frontend URL has been verified.
