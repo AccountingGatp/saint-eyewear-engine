@@ -342,6 +342,35 @@ def assess(pnl,bs,gl,drs,m,config=None,previous=None,issued=None):
  def add(rule,severity,message,figures=None,group='internal'):
   key=hashlib.sha256((rule+'|'+message).encode()).hexdigest()[:20]
   flags.append({'id':key,'rule':rule,'severity':severity,'message':message,'figures':figures or {},'group':group})
+ # Check the financial source totals before displaying headline metrics or allowing review.
+ # The supplied August export has cached zero subtotal rows even though account lines are populated.
+ for mm in pnl['display_months']:
+  values=pnl['months'][mm];sections=pnl['sections']
+  section_totals={}
+  for account in pnl['accounts']:
+   if account in values:
+    section=norm(sections.get(account,''))
+    section_totals[section]=section_totals.get(section,Decimal(0))+dec(values[account])
+  expected_income=section_totals.get('trading income')
+  expected_cogs=section_totals.get('cost of sales')
+  expected_operating=section_totals.get('operating expenses')
+  checks=[('Total Trading Income',expected_income,config['total_labels']['revenue']),
+          ('Total Cost of Sales',expected_cogs,config['total_labels']['cogs']),
+          ('Total Operating Expenses',expected_operating,['Total Operating Expenses'])]
+  for name,expected,aliases in checks:
+   recorded=get_amount(values,aliases,False)
+   if recorded is not None and expected is not None and abs(recorded-expected)>Decimal('.01'):
+    add('SOURCE','Block',f'{mm}: {name} in the Xero export is {fmt(recorded)}, but its underlying account lines sum to {fmt(expected)}. Re-export with correct calculated totals; figures remain unapproved.',{'source_total':fmt(recorded),'sum_of_accounts':fmt(expected),'difference':fmt(expected-recorded)})
+  gross=get_amount(values,config['total_labels']['gross'],False)
+  profit=get_amount(values,config['total_labels']['net'],False)
+  if expected_income is not None and expected_cogs is not None and gross is not None and abs((expected_income-expected_cogs)-gross)>Decimal('.01'):
+   add('SOURCE','Block',f'{mm}: Gross Profit does not match trading income less cost of sales.',{'reported_gross':fmt(gross),'sum_of_accounts_gross':fmt(expected_income-expected_cogs)})
+  if expected_income is not None and expected_cogs is not None and expected_operating is not None and profit is not None and abs((expected_income-expected_cogs-expected_operating)-profit)>Decimal('.01'):
+   add('SOURCE','Block',f'{mm}: Net Profit does not match the net of underlying account lines.',{'reported_net':fmt(profit),'sum_of_accounts_net':fmt(expected_income-expected_cogs-expected_operating)})
+ for mm in bs['display_months']:
+  row=bs['months'][mm]
+  if dec(row.get('Total Assets',0))==0 and any(dec(v)!=0 for k,v in row.items() if k not in ('Total Assets','Net Assets','Total Equity')):
+   add('SOURCE','Block',f'{mm}: Balance Sheet Total Assets is zero even though underlying account balances are nonzero. Re-export the Balance Sheet with valid totals.')
  if not pnl['export_date'] or not gl['export_date']:add('R3','Block','P&L and GL export dates must both be present in their headers.')
  elif pnl['export_date']!=gl['export_date']:add('R3','Block','P&L and GL export dates differ. Re-export both on the same day.',{'pnl':pnl['export_date'],'gl':gl['export_date']})
  for mm in bs['display_months']:
