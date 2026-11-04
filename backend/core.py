@@ -87,7 +87,13 @@ def xml(z,path):
  if b'<!DOCTYPE' in raw or b'<!ENTITY' in raw:raise ValidationError('XML entities are not permitted.')
  return ET.fromstring(raw)
 
-def excel(raw):
+def workbook_sheet_names(raw):
+ """Read workbook tab names without expanding any worksheet XML."""
+ z=safe_zip(raw)
+ book=xml(z,'xl/workbook.xml')
+ return [sh.get('name') for sh in book.findall('s:sheets/s:sheet',NS)]
+
+def excel(raw, only_sheets=None, max_rows=None):
  """Read cached cell values and styles; never calculate or execute Excel formulas."""
  z=safe_zip(raw)
  try:
@@ -104,11 +110,13 @@ def excel(raw):
     styles.append(n in range(14,23) or n in range(45,48) or bool(re.search(r'[dy]',code,re.I)))
   out={};count=0
   for sh in book.findall('s:sheets/s:sheet',NS):
+   if only_sheets is not None and sh.get('name') not in only_sheets:continue
    target=links[sh.get('{'+NS['r']+'}id')];path=target.lstrip('/') if target.startswith('/') else 'xl/'+target
    if '/..' in path:raise ValidationError('Unsafe worksheet relationship.')
    sheet=xml(z,path); rows=[]
    for row in sheet.findall('s:sheetData/s:row',NS):
     rn=int(row.get('r','0'))
+    if max_rows is not None and rn>max_rows:break
     if rn<1 or rn>100000:raise ValidationError('Worksheet exceeds 100,000 rows.')
     while len(rows)<rn:rows.append([])
     values=rows[rn-1]
@@ -232,7 +240,8 @@ def general_ledger(raw,m):
  if not tx:raise ValidationError('General Ledger: no valid transactions for selected month.')
  return {'transactions':tx,'export_date':exported(rows),'count':len(tx),'vendor_inferred':vi is None}
 def daily_reporting(raw,m,config):
- wb=excel(raw)
+ # Exclude large COGS, breakdown and journal working sheets: no report values are taken from them.
+ wb=excel(raw,only_sheets={'Daily Reporting','Productwise Sales','Productwise','Countrywise Sales','Countrywise'})
  # Accept both the earlier SOP names and the actual Google Sheet export names.
  desired=config.get('drs_sheets') or ['Daily Reporting','Productwise Sales','Countrywise Sales']
  aliases=[['Daily Reporting'],['Productwise Sales','Productwise'],['Countrywise Sales','Countrywise']]
@@ -424,7 +433,8 @@ def inspect_uploads(payload):
  for uploaded_slot,encoded in files.items():
   try: raw=base64.b64decode(encoded,validate=True)
   except Exception:raise ValidationError('One uploaded workbook has invalid encoding.')
-  wb=excel(raw)
+  names=workbook_sheet_names(raw)
+  wb=excel(raw,only_sheets={'Daily Reporting'} if 'Daily Reporting' in names else set(names),max_rows=45)
   headings=' '.join(str(v or '') for rows in wb.values() for row in rows[:6] for v in row[:4]).casefold()
   if 'Daily Reporting' in wb:
    kind='drs'
