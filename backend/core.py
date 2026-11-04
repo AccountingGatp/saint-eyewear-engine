@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from xml.etree import ElementTree as ET
 
-VERSION='2.0.1-review'
+VERSION='2.1.0-staged-review'
 class ValidationError(ValueError): pass
 NS={'s':'http://schemas.openxmlformats.org/spreadsheetml/2006/main','r':'http://schemas.openxmlformats.org/officeDocument/2006/relationships'}
 DEFAULT_CONFIG={
