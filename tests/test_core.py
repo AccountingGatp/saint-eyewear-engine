@@ -206,3 +206,15 @@ def test_invalid_zero_xero_totals_are_blocked_and_not_approved(result):
  assert out['client_ready'] is False
  assert any(x['rule']=='SOURCE' and x['severity']=='Block'
             and 'underlying account lines' in x['message'] for x in out['flags'])
+
+
+def test_isolated_parse_and_assess_equals_single_process():
+    p=fixture()
+    parts={k:parse_file({'month':p['month'],'kind':k,'file':p['files'][k],'config':p['config']})
+           for k in ('pnl','bs','gl','drs')}
+    isolated=assess_parsed({'month':p['month'],'parts':parts,'config':p['config'],
+                            'previous':p['previous'],'issued':p['issued']})
+    combined=process(p)
+    assert isolated==combined
+    assert set(isolated['source_hashes'])=={'pnl','bs','gl','drs'}
+    assert isolated['client_ready'] is False
