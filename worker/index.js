@@ -17,7 +17,8 @@ async function routed(req,env,url){
  const path=url.pathname;const ck=cookies(req);let token=ck.sa_access,session;
  if(path==='/api/health'){
   const p=await engine(env,'health');const s=await edge(env,null,{action:'health'});
-  return json({app:'Saint Eyewear reporting',python:p.ok,database:s.ok,client_ready:false,mode:'internal_review',release_blockers:['Original templates missing','August/September issued-pack acceptance not completed'],version:p.data.version||null},p.ok&&s.ok?200:503);
+  const compatible=p.ok&&['inspect','parse','assess','generate'].every(x=>(p.data?.capabilities||[]).includes(x));
+  return json({app:'Saint Eyewear reporting',python:p.ok,python_compatible:compatible,database:s.ok,client_ready:false,mode:'internal_review',release_blockers:['Original templates missing','August/September issued-pack acceptance not completed'],version:p.data?.version||null},compatible&&s.ok?200:503);
  }
  if(path==='/api/auth/signout'){
   if(token)await sbAuth('logout?scope=local',{},token);
