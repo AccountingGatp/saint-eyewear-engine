@@ -52,9 +52,28 @@ async function routed(req,env,url){
   if(!prepared.ok)out=prepared;
   else{
    const version=prepared.data.version;let processed;
-   try{processed=await engine(env,'process',prepared.data.payload)}catch{processed={ok:false,status:503,data:{error:'Python processing failed. Reopen the run and retry.'}}}
+   try{
+    const inspected=await engine(env,'inspect',{files:prepared.data.payload.files});
+    if(!inspected.ok){processed=inspected;}
+    else{
+     const reportMonth=inspected.data.month;
+     const mapped={};
+     for(const [kind,slot] of Object.entries(inspected.data.source_map||{}))mapped[kind]=prepared.data.payload.files[slot];
+     const detected=await edge(env,token,{action:'detected',run_id:b.run_id,version,month:reportMonth});
+     if(!detected.ok)processed=detected;
+     else{
+      const payload={...prepared.data.payload,month:reportMonth,files:mapped,previous:detected.data.previous,issued:detected.data.issued};
+      processed=await engine(env,'process',payload);
+     }
+    }
+   }catch(error){
+    processed={ok:false,status:503,data:{error:'Python processing service could not complete the request. Check the deployed ENGINE Worker binding, Python Worker version, resource limits and server logs. No report was approved.'}};
+   }
    if(processed.ok)out=await edge(env,token,{action:'complete',run_id:b.run_id,version,result:processed.data});
-   else{await edge(env,token,{action:'fail',run_id:b.run_id,version,error:processed.data.error});out=processed;}
+   else{
+    await edge(env,token,{action:'fail',run_id:b.run_id,version,error:processed.data.error});
+    out=processed;
+   }
   }
  }else if(action==='generate'){
   const p=await edge(env,token,{action:'generation',run_id:b.run_id,version:b.version,kind:b.kind});
