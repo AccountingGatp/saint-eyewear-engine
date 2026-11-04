@@ -118,3 +118,19 @@ def test_auto_identifies_four_files_independent_of_filename_or_upload_order():
     result = inspect_uploads({"files":{k:base64.b64encode(v).decode() for k,v in uploaded.items()}})
     assert result["month"] == "2026-08"
     assert result["source_map"] == {"drs":"gl", "bs":"drs", "pnl":"bs", "gl":"pnl"}
+
+
+def test_drs_ignores_non_reporting_working_sheets():
+    dates = [date(2026, 8, d) for d in range(1, 32)]
+    daily = [["Metric"]+["Value"]*31, ["Date"]+dates,
+             ["Order range"]+["#1"]*31, ["Number of orders"]+[1]*31,
+             ["Gross sales"]+[100]*31, [], [], [], [], [],
+             ["Total sales (A$)"]+[100]*31, [], [], [], [], ["Refund"]+[0]*31]
+    p = [[], [], [None, "Frames", 100], [None, "Total Sales", 100]]
+    c = [[], [], [], [None, "Australia", 100], [None, "Total", 100]]
+    # A deliberately invalid unneeded tab (more than 1000 columns) must not
+    # prevent parsing the three report tabs needed for calculations.
+    raw = xlsx([], {"Daily Reporting":daily,"Productwise Sales":p,
+                    "Countrywise Sales":c,"August Breakdown Sheet":[[None]*1001+["irrelevant"]]})
+    result = daily_reporting(raw, "2026-08", DEFAULT_CONFIG)
+    assert result["totals"]["orders"] == "31"
