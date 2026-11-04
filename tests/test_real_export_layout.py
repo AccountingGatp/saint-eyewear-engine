@@ -2,7 +2,22 @@
 from datetime import date
 import pytest
 from backend.core import daily_reporting, general_ledger, financial, DEFAULT_CONFIG, ValidationError
-from tests.test_core import xlsx
+from openpyxl import Workbook
+import io
+
+def xlsx(rows, sheets=None):
+    w = Workbook()
+    ws = w.active
+    ws.title = "Report"
+    for row in rows:
+        ws.append(row)
+    for name, content in (sheets or {}).items():
+        ws = w.create_sheet(name)
+        for row in content:
+            ws.append(row)
+    stream = io.BytesIO()
+    w.save(stream)
+    return stream.getvalue()
 
 
 def test_drs_real_sheet_names_and_labeled_rows():
