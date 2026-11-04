@@ -116,6 +116,20 @@ Deno.serve(async req=>{
     throw error;
    }
   }
+  if(action==='detected'){
+   if(!r.processing_until||r.version!==b.version)bad('No matching processing run.',409);
+   const m=month(b.month);
+   if(r.report_month.slice(0,7)!=='2000-01'&&r.report_month.slice(0,7)!==m)bad('Uploaded files do not match the saved run month.',409);
+   await update(r,{report_month:m+'-01'},b.version);
+   const pm=previousMonth(m);
+   const prevs=checked(await db.from('runs').select('figures').eq('report_month',pm+'-01').in('status',['review','ready','generated']).order('updated_at',{ascending:false}).limit(1))||[];
+   const p=prevs[0]?.figures;
+   const previous=p?{vendors:p.vendors,drs_totals:p.drs?.totals,accounts:p.pnl?.accounts}:{};
+   const rows=checked(await db.from('saint_issued').select('report_month,figures').lte('report_month',m+'-01').gte('report_month',previousMonth(pm)+'-01').order('created_at',{ascending:false}))||[];
+   const issued:any={};for(const row of rows){const k=row.report_month.slice(0,7);if(!issued[k])issued[k]=row.figures;}
+   await audit(r.id,user.id,'month_detected');
+   return response({month:m,previous,issued});
+  }
   if(action==='complete'){
    if(!r.processing_until||!b.result||b.result.month!==r.report_month.slice(0,7))bad('No valid processing operation is active.',409);
    const f={...b.result,client_ready:false};await update(r,{figures:f,flags:f.flags,status:f.status,processing_until:null,error_message:null},b.version);await audit(r.id,user.id,'processing_completed');return response({saved:true});
