@@ -64,33 +64,38 @@ async function routed(req,env,url){
   const prepared=await edge(env,token,{action:'prepare',run_id:b.run_id,version:b.version});
   if(!prepared.ok)out=prepared;
   else{
-   const version=prepared.data.version;let processed;let processingStage='inspect';
+   const version=prepared.data.version;let processed;let processingStage='validate stored run';
    try{
-    const inspected=await engine(env,'inspect',{files:prepared.data.payload.files});
-    if(!inspected.ok){processed=inspected.status===404?{ok:false,status:503,data:{error:'The deployed Python reporting engine is outdated: the /inspect endpoint is missing. Deploy the latest backend/core.py and backend/entry.py to the saint-eyewear-engine Cloudflare Worker before uploading again. The Excel files have not yet been rejected.'}}:inspected;}
-    else{
-     const reportMonth=inspected.data.month;
-     const mapped={};
-     for(const [kind,slot] of Object.entries(inspected.data.source_map||{}))mapped[kind]=prepared.data.payload.files[slot];
-     if(reportMonth!==prepared.data.payload.month){
-      processed={ok:false,status:422,data:{error:'The uploaded workbooks show '+reportMonth+', but this run was created for '+prepared.data.payload.month+'. Start a new run with all four files selected together.'}};
-     }else{
+    // Initial authenticated upload preflight already identified and mapped files.
+    // Reprocessing must not deserialize/parse all four again in one Python Worker.
+    // Each private parse validates the report identity, month, and required structure.
+    const saved=prepared.data.payload||{};
+    const reportMonth=saved.month;
+    const files=saved.files||{};
+    if(!/^20\d\d-(0[1-9]|1[0-2])$/.test(reportMonth) ||
+      Object.keys(files).length!==4 ||
+      ['pnl','bs','gl','drs'].some(k=>typeof files[k]!=='string'||!files[k])){
+      processed={ok:false,status:422,data:{error:'This run is missing its detected reporting month or one of the four source workbooks. Start a new upload. No report was approved.'}};
+    }else{
       const parts={};
       for(const kind of ['pnl','bs','gl','drs']){
        const label={pnl:'Profit & Loss',bs:'Balance Sheet',gl:'General Ledger',drs:'Daily Reporting Sheet'}[kind];
        processingStage='parsing '+label;
-       const step=await engine(env,'parse',{month:reportMonth,kind,file:mapped[kind],config:prepared.data.payload.config});
+       const step=await engine(env,'parse',{month:reportMonth,kind,file:files[kind],config:saved.config});
        if(!step.ok){
-        processed={ok:false,status:step.status,data:{error:label+' failed validation: '+String(step.data?.error||'The Python source parser returned an error.')}}
+        processed={ok:false,status:step.status,data:{error:label+' failed validation: '+String(step.data?.error||'Python source parser returned an error.')}}
+        break;
+       }
+       if(step.data?.kind!==kind||!step.data?.data||!step.data?.source_hash){
+        processed={ok:false,status:503,data:{error:label+' parser returned an incomplete response. No report was approved.'}};
         break;
        }
        parts[kind]=step.data;
       }
       if(!processed){
        processingStage='accounting reconciliation';
-       processed=await engine(env,'assess',{month:reportMonth,parts,config:prepared.data.payload.config,previous:prepared.data.payload.previous,issued:prepared.data.payload.issued});
+       processed=await engine(env,'assess',{month:reportMonth,parts,config:saved.config,previous:saved.previous,issued:saved.issued});
       }
-     }
     }
    }catch(error){
     const type=error instanceof Error?error.name:'RuntimeError';
