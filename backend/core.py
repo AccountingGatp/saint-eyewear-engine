@@ -530,15 +530,42 @@ def inspect_uploads(payload):
   raise ValidationError('Files show different reporting months: '+', '.join(k+' '+v for k,v in month_candidates)+'. Upload matching full-month reports.')
  return {'month':next(iter(detected_months)),'source_map':detected}
 
-def process(payload):
+def parse_file(payload):
+ """Parse one canonical source workbook per Python request to contain memory use."""
  m=payload.get('month','')
  if not re.fullmatch(r'20\d\d-(0[1-9]|1[0-2])',m):raise ValidationError('Choose a valid report month.')
+ kind=payload.get('kind')
+ if kind not in ('pnl','bs','gl','drs'):raise ValidationError('Unknown source file type.')
+ encoded=payload.get('file')
+ if not isinstance(encoded,str):raise ValidationError('Missing Excel source file.')
+ try:raw=base64.b64decode(encoded,validate=True)
+ except Exception:raise ValidationError('Invalid Excel source file encoding.')
  config=json.loads(json.dumps(DEFAULT_CONFIG));config.update(payload.get('config') or {})
- files=payload.get('files',{})
- if set(files)!={'pnl','bs','gl','drs'}:raise ValidationError('Exactly four source files are required.')
- try:raw={k:base64.b64decode(v,validate=True) for k,v in files.items()}
- except Exception:raise ValidationError('Invalid file encoding.')
- pnl=financial(raw['pnl'],'P&L',m);bs=financial(raw['bs'],'Balance Sheet',m);gl=general_ledger(raw['gl'],m);drs=daily_reporting(raw['drs'],m,config)
- result=assess(pnl,bs,gl,drs,m,config,payload.get('previous'),payload.get('issued'))
- result['source_hashes']={k:hashlib.sha256(v).hexdigest() for k,v in raw.items()}
+ if kind=='pnl':data=financial(raw,'P&L',m)
+ elif kind=='bs':data=financial(raw,'Balance Sheet',m)
+ elif kind=='gl':data=general_ledger(raw,m)
+ else:data=daily_reporting(raw,m,config)
+ return {'kind':kind,'data':data,'source_hash':hashlib.sha256(raw).hexdigest()}
+
+def assess_parsed(payload):
+ """Assess only already-validated structured results; files never need to be re-read."""
+ m=payload.get('month','')
+ if not re.fullmatch(r'20\d\d-(0[1-9]|1[0-2])',m):raise ValidationError('Choose a valid report month.')
+ parts=payload.get('parts') or {}
+ if set(parts)!=set(('pnl','bs','gl','drs')):raise ValidationError('Four parsed reports are required.')
+ for kind,part in parts.items():
+  if not isinstance(part,dict) or part.get('kind')!=kind or not isinstance(part.get('data'),dict):
+   raise ValidationError('A parsed report has an incorrect source type.')
+ config=json.loads(json.dumps(DEFAULT_CONFIG));config.update(payload.get('config') or {})
+ result=assess(parts['pnl']['data'],parts['bs']['data'],parts['gl']['data'],parts['drs']['data'],m,config,payload.get('previous'),payload.get('issued'))
+ result['source_hashes']={k:parts[k]['source_hash'] for k in ('pnl','bs','gl','drs')}
  return result
+
+def process(payload):
+ files=payload.get('files') or {}
+ if set(files)!=set(('pnl','bs','gl','drs')):raise ValidationError('Exactly four source files are required.')
+ m=payload.get('month','')
+ parts={kind:parse_file({'month':m,'kind':kind,'file':files[kind],'config':payload.get('config')})
+        for kind in ('pnl','bs','gl','drs')}
+ return assess_parsed({'month':m,'parts':parts,'config':payload.get('config'),
+                       'previous':payload.get('previous'),'issued':payload.get('issued')})
