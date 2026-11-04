@@ -415,6 +415,49 @@ def assess(pnl,bs,gl,drs,m,config=None,previous=None,issued=None):
  if not config.get('confirmed'):add('CONFIG','Review','Owner must confirm the proposed thresholds and account mappings before client use.')
  return {'month':m,'pnl':pnl,'bs':bs,'drs':drs,'gl_count':gl['count'],'metrics':metrics,'vendors':{k:str(v) for k,v in vendors.items()},'redo_tech_detail':str(redo),'bridge':bridge,'flags':flags,'coverage':coverage,'revised_months':sorted(set(revised)),'status':'blocked' if any(f['severity']=='Block' for f in flags) else 'review','client_ready':False,'release_limitations':['Original report templates have not been supplied/verified.','August and September issued-pack acceptance tests have not been run.'],'version':VERSION}
 
+def inspect_uploads(payload):
+ """Identify four uploaded workbooks from their content, never from filenames or upload order."""
+ files=payload.get('files') or {}
+ if len(files)!=4 or set(files)!={'pnl','bs','gl','drs'}:
+  raise ValidationError('Upload exactly four .xlsx workbooks.')
+ detected={};month_candidates=[]
+ for uploaded_slot,encoded in files.items():
+  try: raw=base64.b64decode(encoded,validate=True)
+  except Exception:raise ValidationError('One uploaded workbook has invalid encoding.')
+  wb=excel(raw)
+  headings=' '.join(str(v or '') for rows in wb.values() for row in rows[:6] for v in row[:4]).casefold()
+  if 'Daily Reporting' in wb:
+   kind='drs'
+   row=wb['Daily Reporting']
+   daily=[dt(v) for line in row[:3] for v in line if dt(v)]
+   if not daily:raise ValidationError('DRS: cannot detect reporting month from its daily date row.')
+   months={d.strftime('%Y-%m') for d in daily}
+   if len(months)!=1:raise ValidationError('DRS: dates span multiple reporting months.')
+   month_candidates.append(('DRS',next(iter(months))))
+  elif 'general ledger' in headings:
+   kind='gl'
+  elif 'balance sheet' in headings:
+   kind='bs'
+  elif 'profit and loss' in headings:
+   kind='pnl'
+  else:raise ValidationError('Cannot identify one uploaded file. Expected Xero Profit and Loss, Balance Sheet, General Ledger Detail, or the Daily Reporting workbook.')
+  if kind in detected:raise ValidationError('Two files appear to be '+kind+'. Upload one of each required report.')
+  detected[kind]=uploaded_slot
+  if kind in ('pnl','bs'):
+   rows=next(iter(wb.values()))
+   # The monthly comparison header must identify full month columns.
+   candidates=[(ri,[(j,month(v)) for j,v in enumerate(row) if month(v)])
+               for ri,row in enumerate(rows[:40])]
+   candidates=[(ri,cols) for ri,cols in candidates if len(cols)>=3]
+   if len(candidates)==1:
+    month_candidates.append((kind,max(m for j,m in candidates[0][1])))
+ if set(detected)!={'pnl','bs','gl','drs'}:
+  raise ValidationError('Upload one of each: Profit and Loss, Balance Sheet, General Ledger, Daily Reporting Sheet.')
+ detected_months={m for kind,m in month_candidates}
+ if len(detected_months)!=1:
+  raise ValidationError('Files show different reporting months: '+', '.join(k+' '+v for k,v in month_candidates)+'. Upload matching full-month reports.')
+ return {'month':next(iter(detected_months)),'source_map':detected}
+
 def process(payload):
  m=payload.get('month','')
  if not re.fullmatch(r'20\d\d-(0[1-9]|1[0-2])',m):raise ValidationError('Choose a valid report month.')
