@@ -15,5 +15,45 @@ test('no authentication yields 401 rather than demo history',async()=>{const r=a
 test('internal completion endpoint is not browser-routable',async()=>{const r=await worker.fetch(req('/api/complete',{method:'POST',cookie:'sa_access=synthetic',body:{result:{client_ready:true}}}),env);assert.equal(r.status,404);});
 test('sign-in rejects non-company email locally',async()=>{const r=await worker.fetch(req('/api/auth/signin',{method:'POST',body:{email:'other@example.invalid',password:'synthetic-only'}}),env);assert.equal(r.status,400);});
 test('health cannot certify client reporting readiness',async()=>{const original=globalThis.fetch;globalThis.fetch=async()=>Response.json({database:true,storage_private:true});try{const r=await worker.fetch(req('/api/health'),env);assert.equal(r.status,200);const d=await r.json();assert.equal(d.client_ready,false);assert.equal(d.mode,'internal_review');}finally{globalThis.fetch=original}});
-test('processing uses server-stored inputs, not browser-forged figures',async()=>{const original=globalThis.fetch;const seen=[];globalThis.fetch=async(url,options)=>{const b=JSON.parse(options.body);seen.push(b);if(b.action==='prepare')return Response.json({version:3,payload:{month:'2026-09',marker:'server-input'}});if(b.action==='complete')return Response.json({saved:true});throw Error('Unexpected mock action');};const e={...env,ENGINE:{fetch:async r=>{const b=await r.json();assert.equal(b.marker,'server-input');assert.equal(b.client_ready,undefined);return Response.json({month:'2026-09',client_ready:false,flags:[],status:'review'})}}};try{const r=await worker.fetch(req('/api/process',{method:'POST',cookie:'sa_access=synthetic',body:{run_id:'test-run',version:2,figures:{net:'999999'},client_ready:true}}),e);assert.equal(r.status,200);assert.equal(seen[1].result.client_ready,false);assert.equal(seen[1].version,3);}finally{globalThis.fetch=original}});
-test('Python error is saved as an error, never an approved report',async()=>{const original=globalThis.fetch;const seen=[];globalThis.fetch=async(url,options)=>{const b=JSON.parse(options.body);seen.push(b);return Response.json(b.action==='prepare'?{version:3,payload:{}}:{saved:true})};const e={...env,ENGINE:{fetch:async()=>Response.json({error:'Synthetic blocking failure'},{status:422})}};try{const r=await worker.fetch(req('/api/process',{method:'POST',cookie:'sa_access=synthetic',body:{run_id:'test-run',version:2}}),e);assert.equal(r.status,422);assert.equal(seen[1].action,'fail');assert(!seen.some(x=>x.action==='complete'));}finally{globalThis.fetch=original}});
+test('processing auto-detects and remaps only server-stored uploads',async()=>{
+ const original=globalThis.fetch;const seen=[];
+ globalThis.fetch=async(url,options)=>{
+  const b=JSON.parse(options.body);seen.push(b);
+  if(b.action==='prepare')return Response.json({version:3,payload:{month:'2000-01',marker:'server-input',files:{pnl:'first',bs:'second',gl:'third',drs:'fourth'}}});
+  if(b.action==='detected')return Response.json({month:'2026-09',previous:{},issued:{}});
+  if(b.action==='complete')return Response.json({saved:true});
+  throw Error('Unexpected mock edge action: '+b.action);
+ };
+ const e={...env,ENGINE:{fetch:async r=>{
+  if(new URL(r.url).pathname==='/inspect'){
+   const b=await r.json();assert.equal(b.files.pnl,'first');
+   return Response.json({month:'2026-09',source_map:{pnl:'bs',bs:'gl',gl:'drs',drs:'pnl'}});
+  }
+  const b=await r.json();
+  assert.equal(b.marker,'server-input');assert.equal(b.month,'2026-09');
+  assert.equal(b.files.pnl,'second');assert.equal(b.files.drs,'first');
+  assert.equal(b.client_ready,undefined);
+  return Response.json({month:'2026-09',client_ready:false,flags:[],status:'review'});
+ }}};
+ try{
+  const r=await worker.fetch(req('/api/process',{method:'POST',cookie:'sa_access=synthetic',body:{run_id:'test-run',version:2,figures:{net:'999999'},client_ready:true}}),e);
+  assert.equal(r.status,200);
+  assert.equal(seen[1].action,'detected');assert.equal(seen[2].action,'complete');
+  assert.equal(seen[2].result.client_ready,false);
+  assert.equal(seen[2].version,3);
+ }finally{globalThis.fetch=original}
+});
+test('Python inspection error is saved and reported without approving the run',async()=>{
+ const original=globalThis.fetch;const seen=[];
+ globalThis.fetch=async(url,options)=>{
+  const b=JSON.parse(options.body);seen.push(b);
+  return Response.json(b.action==='prepare'?{version:3,payload:{files:{pnl:'a',bs:'b',gl:'c',drs:'d'}}}:{saved:true});
+ };
+ const e={...env,ENGINE:{fetch:async()=>Response.json({error:'Synthetic blocking failure'},{status:422})}};
+ try{
+  const r=await worker.fetch(req('/api/process',{method:'POST',cookie:'sa_access=synthetic',body:{run_id:'test-run',version:2}}),e);
+  assert.equal(r.status,422);assert.equal(seen[1].action,'fail');
+  assert.equal(seen[1].error,'Synthetic blocking failure');
+  assert(!seen.some(x=>x.action==='complete'));
+ }finally{globalThis.fetch=original}
+});
