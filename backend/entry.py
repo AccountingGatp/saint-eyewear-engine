@@ -8,7 +8,7 @@ class Default(WorkerEntrypoint):
  async def fetch(self, request):
   try:
    path=str(request.url).split('?',1)[0].rsplit('/',1)[-1]
-   if path=='health':return Response.json({'runtime':'Python','version':VERSION,'client_ready':False})
+   if path=='health':return Response.json({'runtime':'Python','version':VERSION,'capabilities':['inspect','parse','assess','generate'],'client_ready':False})
    if path=='config':return Response.json(DEFAULT_CONFIG)
    if request.method!='POST':return Response.json({'error':'Method not allowed'},status=405)
    body=json.loads(await request.text())
