@@ -132,7 +132,9 @@ def excel(raw, only_sheets=None, max_rows=None):
      ty=cell.get('t','n');v=cell.find('s:v',NS);f=cell.find('s:f',NS)
      if ty=='e':raise ValidationError(f'Excel error in {sh.get("name")}!{ref}; recalculate and export again.')
      if f is not None and (v is None or v.text is None):raise ValidationError(f'Missing cached formula result in {sh.get("name")}!{ref}; recalculate and export again.')
-     if ty=='inlineStr':value=''.join(cell.find('s:is',NS).itertext())
+     if ty=='inlineStr':
+      inline=cell.find('s:is',NS)
+      value=''.join(inline.itertext()) if inline is not None else None
      elif v is None or v.text is None:value=None
      elif ty=='s':value=strings[int(v.text)]
      elif ty=='b':value=v.text=='1'
@@ -241,6 +243,10 @@ def general_ledger(raw,m):
  return {'transactions':tx,'export_date':exported(rows),'count':len(tx),'vendor_inferred':vi is None}
 def daily_reporting(raw,m,config):
  # Exclude large COGS, breakdown and journal working sheets: no report values are taken from them.
+ sheet_names=set(workbook_sheet_names(raw))
+ if 'Daily Reporting' not in sheet_names:raise ValidationError('DRS missing sheet: Daily Reporting')
+ if not sheet_names.intersection({'Productwise Sales','Productwise'}):raise ValidationError('DRS missing sheet: Productwise Sales')
+ if not sheet_names.intersection({'Countrywise Sales','Countrywise'}):raise ValidationError('DRS missing sheet: Countrywise Sales')
  wb=excel(raw,only_sheets={'Daily Reporting','Productwise Sales','Productwise','Countrywise Sales','Countrywise'})
  # Accept both the earlier SOP names and the actual Google Sheet export names.
  desired=config.get('drs_sheets') or ['Daily Reporting','Productwise Sales','Countrywise Sales']
