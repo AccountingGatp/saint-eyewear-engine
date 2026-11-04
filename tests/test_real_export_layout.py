@@ -168,3 +168,35 @@ def test_duplicate_balance_sheet_account_in_same_section_is_blocked():
     ]
     with pytest.raises(ValidationError,match='same or unknown section'):
         financial(xlsx(rows),'Balance Sheet','2026-08')
+
+
+def test_xero_gl_skips_net_movement_and_total_summary_rows():
+    rows=[
+      ['General Ledger Detail'],['Saint Eyewear Pty Ltd'],
+      ['For the period 1 August 2026 to 31 August 2026'],[],
+      ['Date','Source','Description','Reference','Debit','Credit','Running Balance'],
+      [],['Software Expense'],
+      [date(2026,8,10),'Spend Money','Klaviyo Inc Software',None,997.12,0,0],
+      ['Total Software Expense',None,None,None,0,0,0],
+      ['Net movement',None,None,None,997.12,0,0],
+      [],['Travel - National'],
+      [date(2026,8,10),'Spend Money','Qantas Airline',None,1801.06,0,0],
+      ['Total Travel - National',None,None,None,0,0,0],
+      ['Net movement',None,None,None,1801.06,0,0],
+      [],['Total',None,None,None,0,0,0],
+    ]
+    result=general_ledger(xlsx(rows),'2026-08')
+    assert result['count']==2
+    assert [r['account'] for r in result['transactions']]==['Software Expense','Travel - National']
+    assert sum(float(r['amount']) for r in result['transactions'])==2798.18
+
+def test_gl_invalid_undated_amount_remains_blocked():
+    rows=[
+      ['General Ledger Detail'],['Saint Eyewear Pty Ltd'],
+      ['For the period 1 August 2026 to 31 August 2026'],[],
+      ['Date','Source','Description','Reference','Debit','Credit'],
+      [],['Software Expense'],
+      ['Unrecognized transaction',None,None,None,500,0],
+    ]
+    with pytest.raises(ValidationError,match='unrecognized transaction date'):
+        general_ledger(xlsx(rows),'2026-08')
