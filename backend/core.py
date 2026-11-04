@@ -246,9 +246,15 @@ def general_ledger(raw,m):
   if norm(get(di))=='date':continue
   day=dt(get(di))
   if not day:
+   row_label=norm(get(di))
+   # Xero grouped GL exports include dated transactions followed by subtotal,
+   # Net movement and Closing balance rows. These are display summaries, not JEs.
+   if row_label=='net movement' or row_label=='total' or row_label.startswith(('total ','opening balance','closing balance')):
+    continue
    filled=[str(x).strip() for x in r if x is not None and str(x).strip()]
-   if len(filled)==1 and not norm(filled[0]).startswith(('total','opening balance','closing balance')):account=filled[0]
-   elif get(di) and any(numeric(get(j)) is not None for j in (amt,debit,credit) if j is not None) and not any(k in norm(get(di)) for k in ('total','balance')):
+   if len(filled)==1:
+    account=filled[0]
+   elif get(di) and any(numeric(get(j)) is not None for j in (amt,debit,credit) if j is not None):
     raise ValidationError(f'General Ledger: unrecognized transaction date at row {rn}.')
    continue
   if day.strftime('%Y-%m')!=m:raise ValidationError('General Ledger transaction month does not match '+m+'.')
