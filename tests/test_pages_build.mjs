@@ -32,3 +32,19 @@ test('private source files are not served by Pages gateway', async () => {
     assert.equal((await worker.fetch(new Request(base + path), {})).status, 404);
   }
 });
+
+test('upload accepts real .xlsx filenames and validates detected month using the shipped regexes', async () => {
+  const response = await worker.fetch(new Request(base + '/app.js'), {});
+  const source = await response.text();
+  const extension = source.match(/file=chosen\[k\];if\(!((?:\/(?:\\.|[^/])+\/[a-z]*))\.test\(file\.name\)/);
+  assert(extension, 'Upload file extension guard is present');
+  const actualExtension = Function('"use strict"; return (' + extension[1] + ')')();
+  assert(actualExtension.test('Daily Reporting Sheet_Saint Eyewear Pty Ltd_SEPTEMBER-2026 (1).xlsx'));
+  assert(actualExtension.test('Saint_Eyewear_Pty_Ltd_-_Monthly_comparison (2).XLSX'));
+  assert(!actualExtension.test('malicious.xlsx.zip'));
+  const month = source.match(/if\(!((?:\/(?:\\.|[^/])+\/[a-z]*))\.test\(month\)/);
+  assert(month, 'Month detection guard is present');
+  const actualMonth = Function('"use strict"; return (' + month[1] + ')')();
+  assert(actualMonth.test('2026-09'));
+  assert(!actualMonth.test('2026-19'));
+});
