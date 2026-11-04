@@ -5,7 +5,7 @@ let source=await readFile(new URL('../worker/index.js',import.meta.url),'utf8');
 source=source.replace(/^import HTML.*;$/m,"const HTML='<html>synthetic fixture</html>'; ").replace(/^import SCRIPT.*;$/m,"const SCRIPT='';").replace(/^import CSS.*;$/m,"const CSS='';");
 const {default:worker}=await import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));
 const origin='https://qa.invalid';
-const env={GATEWAY_SECRET:'local-test-placeholder',ENGINE:{fetch:async()=>Response.json({version:'qa',client_ready:false})}};
+const env={GATEWAY_SECRET:'local-test-placeholder',ENGINE:{fetch:async()=>Response.json({version:'qa',capabilities:['inspect','parse','assess','generate'],client_ready:false})}};
 function req(path,{method='GET',body,cookie,originHeader=origin}={}){return new Request(origin+path,{method,headers:{...(method==='POST'?{Origin:originHeader,'Content-Type':'application/json'}:{}),...(cookie?{Cookie:cookie}:{})},...(method==='POST'?{body:JSON.stringify(body||{})}:{})});}
 test('static response has noindex, nosniff and restrictive CSP',async()=>{const r=await worker.fetch(req('/'),env);assert.equal(r.status,200);assert.match(r.headers.get('X-Robots-Tag'),/noindex/);assert.match(r.headers.get('Content-Security-Policy'),/frame-ancestors 'none'/);});
 test('API requires configured secure services',async()=>assert.equal((await worker.fetch(req('/api/session'),{})).status,503));
@@ -113,4 +113,14 @@ test('Python inspection error is saved and reported without approving the run',a
   assert.equal(seen[1].error,'Synthetic blocking failure');
   assert(!seen.some(x=>x.action==='complete'));
  }finally{globalThis.fetch=original}
+});
+
+
+test('health refuses a deployed Python engine without staged parse and assess',async()=>{
+ const orig=globalThis.fetch;globalThis.fetch=async()=>Response.json({database:true,storage_private:true});
+ try{
+  const oldEngine={...env,ENGINE:{fetch:async()=>Response.json({version:'old',client_ready:false})}};
+  const r=await worker.fetch(req('/api/health'),oldEngine);
+  assert.equal(r.status,503);assert.equal((await r.json()).python_compatible,false);
+ }finally{globalThis.fetch=orig}
 });
