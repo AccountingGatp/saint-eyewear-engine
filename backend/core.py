@@ -163,7 +163,7 @@ def financial(raw,kind,m):
    actual=dt(raw_date)
    y,mo=map(int,k.split('-'))
    last=date(y,mo,calendar.monthrange(y,mo)[1])
-   if actual is None or actual!=last:
+   if actual is not None and actual!=last:
     raise ValidationError(f'Balance Sheet: {raw_date} is not the month-end {last}. Export complete calendar month-end balances.')
 
  if len({v for _,v in cols})!=len(cols):raise ValidationError(f'{kind}: duplicate month columns are ambiguous.')
