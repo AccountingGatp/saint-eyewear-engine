@@ -15,28 +15,62 @@ test('no authentication yields 401 rather than demo history',async()=>{const r=a
 test('internal completion endpoint is not browser-routable',async()=>{const r=await worker.fetch(req('/api/complete',{method:'POST',cookie:'sa_access=synthetic',body:{result:{client_ready:true}}}),env);assert.equal(r.status,404);});
 test('sign-in rejects non-company email locally',async()=>{const r=await worker.fetch(req('/api/auth/signin',{method:'POST',body:{email:'other@example.invalid',password:'synthetic-only'}}),env);assert.equal(r.status,400);});
 test('health cannot certify client reporting readiness',async()=>{const original=globalThis.fetch;globalThis.fetch=async()=>Response.json({database:true,storage_private:true});try{const r=await worker.fetch(req('/api/health'),env);assert.equal(r.status,200);const d=await r.json();assert.equal(d.client_ready,false);assert.equal(d.mode,'internal_review');}finally{globalThis.fetch=original}});
-test('processing checks month and reorders files without undeployed detected operation',async()=>{
- const original=globalThis.fetch;const seen=[];
+test('processing parses each workbook separately and assesses verified server-stored inputs',async()=>{
+ const original=globalThis.fetch;const seen=[];const called=[];
  globalThis.fetch=async(url,options)=>{
   const b=JSON.parse(options.body);seen.push(b);
   if(b.action==='prepare')return Response.json({version:3,payload:{month:'2026-09',marker:'server-input',files:{pnl:'first',bs:'second',gl:'third',drs:'fourth'}}});
   if(b.action==='complete')return Response.json({saved:true});
-  throw Error('Unexpected mock action: '+b.action);
+  throw Error('Unexpected mock action '+b.action);
  };
  const e={...env,ENGINE:{fetch:async r=>{
-  if(new URL(r.url).pathname==='/inspect')return Response.json({month:'2026-09',source_map:{pnl:'bs',bs:'gl',gl:'drs',drs:'pnl'}});
+  const p=new URL(r.url).pathname;called.push(p);
+  if(p==='/inspect')return Response.json({month:'2026-09',source_map:{pnl:'bs',bs:'gl',gl:'drs',drs:'pnl'}});
   const b=await r.json();
-  assert.equal(b.marker,'server-input');assert.equal(b.month,'2026-09');
-  assert.equal(b.files.pnl,'second');assert.equal(b.files.drs,'first');
-  assert.equal(b.client_ready,undefined);
-  return Response.json({month:'2026-09',client_ready:false,flags:[],status:'review'});
+  if(p==='/parse'){
+   const expected={pnl:'second',bs:'third',gl:'fourth',drs:'first'};
+   assert.equal(b.file,expected[b.kind]);assert.equal(b.month,'2026-09');
+   return Response.json({kind:b.kind,data:{verified:true},source_hash:'synthetic-'+b.kind});
+  }
+  if(p==='/assess'){
+   assert.deepEqual(Object.keys(b.parts).sort(),['bs','drs','gl','pnl']);
+   assert.equal(b.parts.bs.source_hash,'synthetic-bs');
+   assert.equal(b.month,'2026-09');
+   assert.equal(b.client_ready,undefined);
+   return Response.json({month:'2026-09',client_ready:false,flags:[],status:'review'});
+  }
+  throw Error('Unexpected Python endpoint '+p);
  }}};
  try{
   const r=await worker.fetch(req('/api/process',{method:'POST',cookie:'sa_access=synthetic',body:{run_id:'test-run',version:2,figures:{net:'999999'},client_ready:true}}),e);
   assert.equal(r.status,200);
+  assert.deepEqual(called,['/inspect','/parse','/parse','/parse','/parse','/assess']);
   assert.equal(seen[1].action,'complete');assert.equal(seen[1].result.client_ready,false);
-  assert.equal(seen[1].version,3);
-  assert(!seen.some(x=>x.action==='detected'));
+  assert.equal(seen[1].version,3);assert(!seen.some(x=>x.action==='detected'));
+ }finally{globalThis.fetch=original}
+});
+test('isolated parse error identifies offending workbook and prevents approval',async()=>{
+ const original=globalThis.fetch;const seen=[];
+ globalThis.fetch=async(url,options)=>{
+  const b=JSON.parse(options.body);seen.push(b);
+  if(b.action==='prepare')return Response.json({version:3,payload:{month:'2026-08',files:{pnl:'p',bs:'b',gl:'g',drs:'d'}}});
+  if(b.action==='fail')return Response.json({saved:true});
+  throw Error('Unexpected workspace action');
+ };
+ const e={...env,ENGINE:{fetch:async r=>{
+  const p=new URL(r.url).pathname;
+  if(p==='/inspect')return Response.json({month:'2026-08',source_map:{pnl:'pnl',bs:'bs',gl:'gl',drs:'drs'}});
+  if(p==='/parse'){
+   const b=await r.json();
+   if(b.kind==='gl')return Response.json({error:'Unrecognized transaction date at row 25.'},{status:422});
+   return Response.json({kind:b.kind,data:{ok:true},source_hash:b.kind});
+  }
+  throw Error('Must not assess after invalid GL');
+ }}};
+ try{
+  const r=await worker.fetch(req('/api/process',{method:'POST',cookie:'sa_access=synthetic',body:{run_id:'r',version:2}}),e);
+  assert.equal(r.status,422);assert.match((await r.json()).error,/General Ledger failed validation/);
+  assert.equal(seen[1].action,'fail');assert(!seen.some(x=>x.action==='complete'));
  }finally{globalThis.fetch=original}
 });
 test('mismatched month stays blocked with meaningful error',async()=>{
