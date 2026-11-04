@@ -200,3 +200,28 @@ def test_gl_invalid_undated_amount_remains_blocked():
     ]
     with pytest.raises(ValidationError,match='unrecognized transaction date'):
         general_ledger(xlsx(rows),'2026-08')
+
+
+def test_august_sized_grouped_ledger_with_88_net_movements():
+    # Model the scale and grouped summary structure of the customer's Xero export.
+    rows=[
+      ['General Ledger Detail'], ['Saint Eyewear Pty Ltd'],
+      ['For the period 1 August 2026 to 31 August 2026'], [],
+      ['Date', 'Source', 'Description', 'Reference', 'Debit', 'Credit','Running Balance']
+    ]
+    expected=0
+    for group in range(88):
+        account=f'Account {group:03d}'
+        rows.append([account])
+        for i in range(40):
+            rows.append([date(2026,8,1+(i%31)), 'Spend Money',
+                         f'Vendor {i}',f'R-{group}-{i}',10,0,10])
+            expected+=1
+        rows.append([f'Total {account}',None,None,None,0,0,0])
+        rows.append(['Net movement',None,None,None,400,0,0])
+        rows.append([])
+    rows.append(['Total',None,None,None,0,0,0])
+    result=general_ledger(xlsx(rows),'2026-08')
+    assert result['count']==expected==3520
+    assert len({x['account'] for x in result['transactions']})==88
+    assert all(x['date'].startswith('2026-08-') for x in result['transactions'])
