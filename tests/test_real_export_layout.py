@@ -134,3 +134,37 @@ def test_drs_ignores_non_reporting_working_sheets():
                     "Countrywise Sales":c,"August Breakdown Sheet":[[None]*1001+["irrelevant"]]})
     result = daily_reporting(raw, "2026-08", DEFAULT_CONFIG)
     assert result["totals"]["orders"] == "31"
+
+
+def test_balance_sheet_same_named_account_in_bank_and_liabilities():
+    rows=[
+      ['Balance Sheet'],['Saint Eyewear Pty Ltd'],['As at 31 August 2026'],[],
+      [None,'Account','31 Aug 2026',None,'31 Jul 2026',None,'30 Jun 2026'],
+      ['Assets'],[None,'Bank'],
+      [None,'Credit account (SAINT EYEWEAR LLC)',1522.72,None,0,None,1583.19],
+      [None,'Total Bank',1522.72,None,0,None,1583.19],
+      ['Liabilities'],[None,'Current Liabilities'],
+      [None,'Credit account (SAINT EYEWEAR LLC)',0,None,9853.17,None,0],
+      [None,'Total Current Liabilities',0,None,9853.17,None,0],
+      [None,'Net Assets',1522.72,None,-9853.17,None,1583.19],
+      [None,'Total Equity',1522.72,None,-9853.17,None,1583.19],
+      [None,'Current Year Earnings',0,None,0,None,0],
+    ]
+    result=financial(xlsx(rows),'Balance Sheet','2026-08')
+    aug=result['months']['2026-08'];jul=result['months']['2026-07']
+    assert aug['Credit account (SAINT EYEWEAR LLC) [Bank]']=='1522.72'
+    assert aug['Credit account (SAINT EYEWEAR LLC) [Current Liabilities]']=='0'
+    assert jul['Credit account (SAINT EYEWEAR LLC) [Current Liabilities]']=='9853.17'
+    assert result['lineage']['2026-08|Credit account (SAINT EYEWEAR LLC) [Bank]']['row']==8
+    assert 'Credit account (SAINT EYEWEAR LLC)' not in aug
+
+def test_duplicate_balance_sheet_account_in_same_section_is_blocked():
+    rows=[
+      ['Balance Sheet'],['Saint Eyewear Pty Ltd'],['As at 31 August 2026'],[],
+      [None,'Account','31 Aug 2026',None,'31 Jul 2026',None,'30 Jun 2026'],
+      [None,'Bank'],
+      [None,'Checking',100,None,90,None,80],
+      [None,'Checking',10,None,9,None,8],
+    ]
+    with pytest.raises(ValidationError,match='same or unknown section'):
+        financial(xlsx(rows),'Balance Sheet','2026-08')
