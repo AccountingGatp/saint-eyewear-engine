@@ -35,11 +35,23 @@ async function routed(req,env,url){
  }
  if(!token&&ck.sa_refresh){const rr=await sbAuth('token?grant_type=refresh_token',{refresh_token:ck.sa_refresh});if(rr.ok){session=rr.data;token=session.access_token}}
  if(!token)return setCookies(json({error:'Sign in required.'},401),null);
- const action=path.replace('/api/','');const b=req.method==='POST'?await readBody(req):{};
+ const action=path.replace('/api/','');const b=req.method==='POST'?await readBody(req,action==='inspect'?17_000_000:100000):{};
  let out;
  if(direct.includes(action)){
   out=await edge(env,token,{...b,action});
   if(action==='settings'&&out.ok){const conf=await engine(env,'config');if(conf.ok)out.data.defaults=conf.data;else out={ok:false,status:503,data:{error:'Python configuration unavailable.'}}}
+ }else if(action==='inspect'){
+  const sessionCheck=await edge(env,token,{action:'session'});
+  if(!sessionCheck.ok)out=sessionCheck;
+  else{
+   const files=b.files;
+   const keys=['pnl','bs','gl','drs'];
+   if(!files||Array.isArray(files)||Object.keys(files).length!==4||keys.some(k=>typeof files[k]!=='string'||!files[k].length||files[k].length>6_700_000)||keys.reduce((n,k)=>n+files[k].length,0)>16_100_000){
+    out={ok:false,status:413,data:{error:'Select exactly four valid .xlsx files, each under 5 MB and no more than 12 MB combined.'}};
+   }else{
+    out=await engine(env,'inspect',{files});
+   }
+  }
  }else if(action==='save_settings'){
   const cfg=b.config;
   if(!cfg||typeof cfg!=='object'||!cfg.groups||!cfg.thresholds)return json({error:'Account groups and thresholds are required.'},400);
@@ -59,11 +71,10 @@ async function routed(req,env,url){
      const reportMonth=inspected.data.month;
      const mapped={};
      for(const [kind,slot] of Object.entries(inspected.data.source_map||{}))mapped[kind]=prepared.data.payload.files[slot];
-     processingStage='save detected month';
-     const detected=await edge(env,token,{action:'detected',run_id:b.run_id,version,month:reportMonth});
-     if(!detected.ok)processed=detected;
-     else{
-      const payload={...prepared.data.payload,month:reportMonth,files:mapped,previous:detected.data.previous,issued:detected.data.issued};
+     if(reportMonth!==prepared.data.payload.month){
+      processed={ok:false,status:422,data:{error:'The uploaded workbooks show '+reportMonth+', but this run was created for '+prepared.data.payload.month+'. Start a new run with all four files selected together.'}};
+     }else{
+      const payload={...prepared.data.payload,month:reportMonth,files:mapped};
       processingStage='Python financial processing';
       processed=await engine(env,'process',payload);
      }
