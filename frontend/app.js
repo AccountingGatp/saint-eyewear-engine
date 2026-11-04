@@ -20,7 +20,7 @@ class App extends React.Component{
   if(fields.some(([k])=>!chosen[k]))throw Error('Select all four Excel files.');
   const sizes={};let total=0;
   for(const [k] of fields){
-   const file=chosen[k];if(!/\\.xlsx$/i.test(file.name))throw Error('Upload .xlsx exports only.');
+   const file=chosen[k];if(!/\.xlsx$/i.test(file.name))throw Error('Upload .xlsx exports only.');
    sizes[k]=file.size;total+=file.size;
    if(file.size>5000000)throw Error('Each file must be under 5 MB.');
   }
@@ -34,7 +34,7 @@ class App extends React.Component{
   }
   const inspected=await api('inspect',{files:encoded});
   const mapping=inspected.source_map,month=inspected.month;
-  if(!/^20\\d\\d-(0[1-9]|1[0-2])$/.test(month)||!mapping||fields.some(([k])=>!chosen[mapping[k]]))
+  if(!/^20\d\d-(0[1-9]|1[0-2])$/.test(month)||!mapping||fields.some(([k])=>!chosen[mapping[k]]))
    throw Error('File recognition was incomplete. Select one P&L, Balance Sheet, General Ledger and DRS workbook.');
   const mappedFiles=Object.fromEntries(fields.map(([k])=>[k,chosen[mapping[k]]]));
   const mappedSizes=Object.fromEntries(fields.map(([k])=>[k,mappedFiles[k].size]));
