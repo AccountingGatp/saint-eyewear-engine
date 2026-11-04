@@ -1,6 +1,6 @@
 # Saint Eyewear — Monthly Upload SOP
 
-For GATP staff. **One reporting month per run.** Select the month in the application first, then upload the following four **.xlsx** files. Keep original exported account names and workbook tabs. The application is currently an internal-review tool; generated Word files are drafts until historical issued-pack acceptance tests pass.
+For GATP staff. **One reporting month per run.** Select all four **.xlsx** files together in the single upload control. The application automatically identifies each report and detects the reporting month from workbook data. File order and filenames do not matter. Keep original exported account names and workbook tabs. The application is currently an internal-review tool; generated Word files are drafts until historical issued-pack acceptance tests pass.
 
 | Upload box | Source | Exact requirements |
 |---|---|---|
@@ -9,7 +9,7 @@ For GATP staff. **One reporting month per run.** Select the month in the applica
 | General Ledger | Xero → General Ledger Detail → Excel | All transactions from the **1st through last day** of selected month. Keep Date, Description, Reference, Debit and Credit. Xero account-heading sections are supported; no repeated Account column is required. |
 | Daily Reporting Sheet (DRS) | Client Google Sheet → File → Download → Microsoft Excel (.xlsx) | Keep entire workbook. **Daily Reporting** tab: dates for every day and rows labeled Number of orders, Total sales (A$), Refund. **Productwise Sales** tab and **Countrywise Sales** tab with their final Total rows. Legacy tab names Productwise/Countrywise are also supported. |
 
-## Before you click Upload and validate
+## Before you click Upload 4 files and validate
 
 1. Ensure the four workbooks refer to **Saint Eyewear Pty Ltd** and the same month.
 2. **Do not upload partial or split-half-month Xero reports.** An October 1–15 export is not a full October report.
@@ -20,7 +20,7 @@ For GATP staff. **One reporting month per run.** Select the month in the applica
 
 ## After upload
 
-The app validates input format, account group mappings, month and financial-year arithmetic. Xero P&L is the financial source of truth; GL is solely for transaction/vendor analysis; DRS is solely for daily, product and country details. Resolve all Block exceptions. A reviewer must explain each Review exception and sign off. Document downloads remain internal **DRAFT** until the approved August and September report packs have been reproduced and compared to the issued versions.
+The app detects the reporting month from the DRS and compares it with the financial reports. It validates input format, account group mappings, month and financial-year arithmetic. Xero P&L is the financial source of truth; GL is solely for transaction/vendor analysis; DRS is solely for daily, product and country details. Resolve all Block exceptions. A reviewer must explain each Review exception and sign off. Document downloads remain internal **DRAFT** until the approved August and September report packs have been reproduced and compared to the issued versions.
 
 **If a file fails:** Read the specific error, correct the exported file or provide the necessary support, and try again. Do not conceal missing dates, substitute zero for unknown values, or force a wrong-period report through validation.
 
