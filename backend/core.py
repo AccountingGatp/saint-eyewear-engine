@@ -369,7 +369,7 @@ def assess(pnl,bs,gl,drs,m,config=None,previous=None,issued=None):
    add('SOURCE','Block',f'{mm}: Net Profit does not match the net of underlying account lines.',{'reported_net':fmt(profit),'sum_of_accounts_net':fmt(expected_income-expected_cogs-expected_operating)})
  for mm in bs['display_months']:
   row=bs['months'][mm]
-  if dec(row.get('Total Assets',0))==0 and any(dec(v)!=0 for k,v in row.items() if k not in ('Total Assets','Net Assets','Total Equity')):
+  if 'Total Assets' in row and dec(row['Total Assets'])==0 and any(dec(v)!=0 for k,v in row.items() if k not in ('Total Assets','Net Assets','Total Equity')):
    add('SOURCE','Block',f'{mm}: Balance Sheet Total Assets is zero even though underlying account balances are nonzero. Re-export the Balance Sheet with valid totals.')
  if not pnl['export_date'] or not gl['export_date']:add('R3','Block','P&L and GL export dates must both be present in their headers.')
  elif pnl['export_date']!=gl['export_date']:add('R3','Block','P&L and GL export dates differ. Re-export both on the same day.',{'pnl':pnl['export_date'],'gl':gl['export_date']})
