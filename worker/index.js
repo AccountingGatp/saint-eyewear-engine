@@ -54,7 +54,7 @@ async function routed(req,env,url){
    const version=prepared.data.version;let processed;
    try{
     const inspected=await engine(env,'inspect',{files:prepared.data.payload.files});
-    if(!inspected.ok){processed=inspected;}
+    if(!inspected.ok){processed=inspected.status===404?{ok:false,status:503,data:{error:'The deployed Python reporting engine is outdated: the /inspect endpoint is missing. Deploy the latest backend/core.py and backend/entry.py to the saint-eyewear-engine Cloudflare Worker before uploading again. The Excel files have not yet been rejected.'}}:inspected;}
     else{
      const reportMonth=inspected.data.month;
      const mapped={};
