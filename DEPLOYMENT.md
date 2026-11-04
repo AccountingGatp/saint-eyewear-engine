@@ -24,6 +24,12 @@ Before enabling real financial uploads:
 4. Confirm the private bucket and existing schema. Do not rerun schema scripts blindly against another project.
 5. Set Supabase authentication site/redirect URLs to the actual frontend URL only after Cloudflare has created it. Keep email confirmation and workspace membership checks enabled.
 
+## Fix: "Processing could not complete: Not found"
+
+The gateway now invokes the private Python Worker route **POST /inspect** to identify four unordered Excel files and detect their reporting month. If the gateway is deployed without the matching Python backend, the older Python `backend/entry.py` responds with HTTP 404 `{"error":"Not found"}`. **This is a deployment-version mismatch, not evidence of incorrect Excel files.** The current source now shows a specific update-required message for this response, but that message also requires a gateway deployment.
+
+**Safe update order:** (1) build and deploy the matching `backend/` revision to the private `saint-eyewear-engine` Python Worker, retaining `python_workers` and its private service-binding setup; (2) verify /health version and /inspect over a private service-binding test; (3) deploy the matching `worker/index.js` gateway and Supabase `edge/index.ts` function; (4) test four actual August exports and verify that every error is a specific validation issue, never a generic 404; (5) keep all generated reports as internal drafts pending issued-pack acceptance. A GitHub commit alone does **not** update the private Cloudflare Worker. Do not put financial exports in public test endpoints.
+
 ## Deployment checks
 
 - Verify the actual Pages deployment status and URL; do not infer a live URL from a proposed project name.
