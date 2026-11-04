@@ -102,7 +102,7 @@ async function routed(req,env,url){
     const cause=error instanceof Error?String(error.message||''):'';
     const cpu=/cpu|resource limit|1102|exceeded/i.test(cause);
     console.error('Saint Eyewear processing failure',JSON.stringify({stage:processingStage,type,cpu_limit_suspected:cpu,detail:cause.slice(0,400)}));
-    processed={ok:false,status:503,data:{error:'Processing stopped during '+processingStage+'. Cloudflare logs confirmed that the private Python Worker exceeded its CPU time allowance on this report. This is a hosting/runtime issue, not proof that the Excel files are invalid. Check the Worker plan and CPU limit (Workers Free is limited to 10 ms per request). Do not re-upload repeatedly; run the Python engine on a plan or compute service with adequate CPU capacity. No report was approved.',code:'ENGINE_CPU_CAPACITY',stage:processingStage}};
+    processed={ok:false,status:503,data:{error:cpu?'Python processing stopped during '+processingStage+' because the engine exceeded its execution resource limit. Check the Worker plan and CPU allowance; no report was approved.':'Python processing stopped during '+processingStage+'. Cloudflare logs for the recent August runs show CPU time limit failures; check the private Python Worker limits and request logs before retrying. The uploaded Excel file is not proven invalid. No report was approved.',code:cpu?'ENGINE_CPU_CAPACITY':'ENGINE_RUNTIME_FAILURE',stage:processingStage}};
    }
    if(processed.ok)out=await edge(env,token,{action:'complete',run_id:b.run_id,version,result:processed.data});
    else{
