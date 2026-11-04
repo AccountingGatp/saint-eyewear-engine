@@ -15,7 +15,43 @@ class App extends React.Component{
  async open(id){const d=await api('run',{run_id:id});this.setState({active:d.run,notes:d.run.notes||{},tab:'report'})}
  login(e){e.preventDefault();this.task(async()=>{const s=this.state,d=await api('auth/'+(s.signup?'signup':'signin'),{email:s.email,password:s.password});if(d.confirmation_required){this.setState({signup:false,password:'',message:d.message});return}this.setState({user:d,password:''});await this.refresh()})}
  logout(){this.task(async()=>{await api('auth/signout',{});this.setState({user:null,runs:[],active:null,notes:{},files:{}})})}
- create(){this.task(async()=>{const s=this.state;if(fields.some(([k])=>!s.files[k]))throw Error('Select all four Excel files.');const sizes={};let total=0;for(const [k]of fields){const f=s.files[k];if(!/\.xlsx$/i.test(f.name))throw Error('Upload .xlsx exports only.');sizes[k]=f.size;total+=f.size;if(f.size>5000000)throw Error('Each file must be under 5 MB for this deployment.')}if(total>12000000)throw Error('The four files together must be under 12 MB.');const d=await api('create',{month:'2000-01',sizes});this.setState({progress:'Uploading to private storage...'});for(const[k,label]of fields){this.setState({progress:'Uploading '+label+'...'});const u=d.uploads[k];const url=u.signedUrl||u.url;if(!url)throw Error('No secure upload URL was returned.');const r=await fetch(url,{method:'PUT',headers:{'Content-Type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'},body:s.files[k]});if(!r.ok)throw Error('The '+label+' upload failed. Start a new run; incomplete uploads cannot generate reports.')}this.setState({progress:'Validating and calculating from the uploaded exports...'});try{await api('process',{run_id:d.run_id,version:d.version})}finally{await this.refresh();await this.open(d.run_id)}this.notify('Processing complete. Review the actual exceptions below.');})}
+ create(){this.task(async()=>{
+  const chosen=this.state.files;
+  if(fields.some(([k])=>!chosen[k]))throw Error('Select all four Excel files.');
+  const sizes={};let total=0;
+  for(const [k] of fields){
+   const file=chosen[k];if(!/\\.xlsx$/i.test(file.name))throw Error('Upload .xlsx exports only.');
+   sizes[k]=file.size;total+=file.size;
+   if(file.size>5000000)throw Error('Each file must be under 5 MB.');
+  }
+  if(total>12000000)throw Error('The four files together must be under 12 MB.');
+  this.setState({progress:'Identifying Excel file types and reporting month...'});
+  const encoded={};
+  for(const [k] of fields){
+   const buffer=await chosen[k].arrayBuffer(),bytes=new Uint8Array(buffer);let binary='';
+   for(let i=0;i<bytes.length;i+=16384)binary+=String.fromCharCode(...bytes.subarray(i,i+16384));
+   encoded[k]=btoa(binary);
+  }
+  const inspected=await api('inspect',{files:encoded});
+  const mapping=inspected.source_map,month=inspected.month;
+  if(!/^20\\d\\d-(0[1-9]|1[0-2])$/.test(month)||!mapping||fields.some(([k])=>!chosen[mapping[k]]))
+   throw Error('File recognition was incomplete. Select one P&L, Balance Sheet, General Ledger and DRS workbook.');
+  const mappedFiles=Object.fromEntries(fields.map(([k])=>[k,chosen[mapping[k]]]));
+  const mappedSizes=Object.fromEntries(fields.map(([k])=>[k,mappedFiles[k].size]));
+  this.setState({progress:'Detected reporting month '+month+'. Creating secure run...',files:mappedFiles});
+  const run=await api('create',{month,sizes:mappedSizes});
+  for(const [k,label] of fields){
+   this.setState({progress:'Uploading '+label+'...'});
+   const info=run.uploads[k],url=info.signedUrl||info.url;
+   if(!url)throw Error('Secure upload URL unavailable for '+label+'.');
+   const response=await fetch(url,{method:'PUT',headers:{'Content-Type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'},body:mappedFiles[k]});
+   if(!response.ok)throw Error('Uploading '+label+' failed (HTTP '+response.status+'). Start a fresh run.');
+  }
+  this.setState({progress:'Validating original source files for '+month+'...'});
+  try{await api('process',{run_id:run.run_id,version:run.version});}
+  finally{await this.refresh();await this.open(run.run_id);}
+  this.notify('Source processing finished. Review all exceptions before approving figures.');
+ })}
  reprocess(){this.task(async()=>{const r=this.state.active;this.setState({progress:'Revalidating this run...'});try{await api('process',{run_id:r.id,version:r.version})}finally{await this.refresh();await this.open(r.id)}})}
  review(signoff){this.task(async()=>{const r=this.state.active;const d=await api('review',{run_id:r.id,version:r.version,notes:this.state.notes,signoff});this.setState({active:d.run,notes:d.run.notes});await this.refresh();this.notify(signoff?'Internal review signed. Client-issue approval remains blocked.':'Notes saved. Existing draft links were invalidated.');})}
  generate(){this.task(async()=>{const r=this.state.active;let version=r.version;for(const[k,label]of kinds){this.setState({progress:'Generating '+label+'...'});const saved=await api('generate',{run_id:r.id,version,kind:k});version=saved.version}await this.open(r.id);await this.refresh();this.notify('Four internal draft documents generated. These are not approved client packs.');})}
