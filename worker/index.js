@@ -51,7 +51,7 @@ async function routed(req,env,url){
   const prepared=await edge(env,token,{action:'prepare',run_id:b.run_id,version:b.version});
   if(!prepared.ok)out=prepared;
   else{
-   const version=prepared.data.version;let processed;
+   const version=prepared.data.version;let processed;let processingStage='inspect';
    try{
     const inspected=await engine(env,'inspect',{files:prepared.data.payload.files});
     if(!inspected.ok){processed=inspected.status===404?{ok:false,status:503,data:{error:'The deployed Python reporting engine is outdated: the /inspect endpoint is missing. Deploy the latest backend/core.py and backend/entry.py to the saint-eyewear-engine Cloudflare Worker before uploading again. The Excel files have not yet been rejected.'}}:inspected;}
@@ -59,15 +59,19 @@ async function routed(req,env,url){
      const reportMonth=inspected.data.month;
      const mapped={};
      for(const [kind,slot] of Object.entries(inspected.data.source_map||{}))mapped[kind]=prepared.data.payload.files[slot];
+     processingStage='save detected month';
      const detected=await edge(env,token,{action:'detected',run_id:b.run_id,version,month:reportMonth});
      if(!detected.ok)processed=detected;
      else{
       const payload={...prepared.data.payload,month:reportMonth,files:mapped,previous:detected.data.previous,issued:detected.data.issued};
+      processingStage='Python financial processing';
       processed=await engine(env,'process',payload);
      }
     }
    }catch(error){
-    processed={ok:false,status:503,data:{error:'Python processing service could not complete the request. Check the deployed ENGINE Worker binding, Python Worker version, resource limits and server logs. No report was approved.'}};
+    const type=error instanceof Error?error.name:'RuntimeError';
+    console.error('Saint Eyewear processing failure',JSON.stringify({stage:processingStage,type}));
+    processed={ok:false,status:503,data:{error:'Processing failed during '+processingStage+' ('+type+'). Verify the private Python Worker and resource limits; check Cloudflare Worker logs for this stage. No report was approved.'}};
    }
    if(processed.ok)out=await edge(env,token,{action:'complete',run_id:b.run_id,version,result:processed.data});
    else{
