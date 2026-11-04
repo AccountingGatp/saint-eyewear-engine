@@ -186,3 +186,23 @@ def test_blank_drs_cells_are_not_formatted_as_zero():
 def test_bar_chart_has_zero_baseline_for_positive_values():
  from backend.documents import chart
  assert '<c:min val="0"/>' in chart(['one'],[('Revenue',['100'])])
+
+
+def test_invalid_zero_xero_totals_are_blocked_and_not_approved(result):
+ r=copy.deepcopy(result)
+ p=r['pnl'];m=r['month'];p['sections'].update({
+  'Sales':'Trading Income','Other Income':'Trading Income',
+  'Cost of Goods Sold':'Cost of Sales',
+  'Advertising':'Operating Expenses','Rent':'Operating Expenses'
+ })
+ for row in p['months'].values():
+  row['Total Trading Income']='0'
+  row['Total Cost of Sales']='0'
+  row['Total Operating Expenses']='0'
+  row['Gross Profit']='0'
+  row['Net Profit']='0'
+ out=assess(p,r['bs'],r['gl'],r['drs'],m)
+ assert out['status']=='blocked'
+ assert out['client_ready'] is False
+ assert any(x['rule']=='SOURCE' and x['severity']=='Block'
+            and 'underlying account lines' in x['message'] for x in out['flags'])
