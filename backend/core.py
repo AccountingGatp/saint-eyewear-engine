@@ -185,20 +185,41 @@ def financial(raw,kind,m):
  first=min(j for j,_ in cols);out={v:{} for _,v in cols}; sections={}; current='';ytd={};lineage={};accounts=set()
  yi=[j for j,v in enumerate(rows[ri]) if norm(v) in ('year to date','year-to-date','ytd')]
  if len(yi)>1:raise ValidationError(f'{kind}: multiple YTD columns.')
+ # Distinct Balance Sheet accounts may legitimately share a displayed Xero name
+ # when they belong to different sections (e.g. Bank vs Current Liabilities).
+ # Classify repeated labels before building the numeric dictionary so neither
+ # entry overwrites the other, even where a month happens to be zero.
+ repeated={}
+ if kind=='Balance Sheet':
+  probe_section=''
+  for probe in rows[ri+1:]:
+   probe_label=next((str(v).strip() for v in probe[:first] if v is not None and str(v).strip()),'')
+   if not probe_label:continue
+   probe_values=[numeric(probe[j] if j<len(probe) else None) for j,_ in cols]
+   if all(v is None for v in probe_values):
+    probe_section=probe_label
+   else:
+    repeated.setdefault(norm(probe_label),[]).append(probe_section)
+  for key,sects in repeated.items():
+   if len(sects)>1 and (not all(sects) or len(set(norm(v) for v in sects))!=len(sects)):
+    raise ValidationError(f'Balance Sheet: repeated account label in the same or unknown section ({key}). Export account codes or supply a reviewed mapping.')
  for rownum,row in enumerate(rows[ri+1:],ri+2):
   label=next((str(v).strip() for v in row[:first] if v is not None and str(v).strip()),'')
   if not label:continue
   values=[numeric(row[j] if j<len(row) else None) for j,_ in cols]
   if all(v is None for v in values):current=label;continue
   is_total=norm(label).startswith('total ') or norm(label) in ('gross profit','net profit','net profit / (loss)','net profit/(loss)','net assets')
-  if not is_total:accounts.add(label)
-  sections[label]=current
+  ambiguous=kind=='Balance Sheet' and len(repeated.get(norm(label),[]))>1
+  if ambiguous and is_total:raise ValidationError(f'Balance Sheet: duplicated total {label}; explicit reconciliation is required.')
+  key=f'{label} [{current}]' if ambiguous else label
+  if not is_total:accounts.add(key)
+  sections[key]=current
   for (j,k),v in zip(cols,values):
    original=row[j] if j<len(row) else None
    if v is None and original not in (None,''):raise ValidationError(f'{kind}: nonnumeric value at row {rownum}, month {k}.')
-   if label in out[k]:raise ValidationError(f'{kind}: repeated label {label}; account codes or explicit mapping are required.')
-   out[k][label]=str(v if v is not None else Decimal(0));lineage[f'{k}|{label}']={'sheet':name,'row':rownum,'column':j+1,'blank':v is None}
-  if yi:ytd[label]=str(dec(row[yi[0]] if yi[0]<len(row) else None))
+   if key in out[k]:raise ValidationError(f'{kind}: repeated account key {key}; account codes or explicit mapping are required.')
+   out[k][key]=str(v if v is not None else Decimal(0));lineage[f'{k}|{key}']={'sheet':name,'row':rownum,'column':j+1,'blank':v is None,'source_label':label,'section':current}
+  if yi:ytd[key]=str(dec(row[yi[0]] if yi[0]<len(row) else None))
  if not accounts:raise ValidationError(f'{kind}: no account rows extracted.')
  return {'months':out,'display_months':wanted,'accounts':sorted(accounts),'sections':sections,'export_date':exported(rows),'ytd':ytd,'lineage':lineage,'sheet':name}
 
