@@ -74,9 +74,21 @@ async function routed(req,env,url){
      if(reportMonth!==prepared.data.payload.month){
       processed={ok:false,status:422,data:{error:'The uploaded workbooks show '+reportMonth+', but this run was created for '+prepared.data.payload.month+'. Start a new run with all four files selected together.'}};
      }else{
-      const payload={...prepared.data.payload,month:reportMonth,files:mapped};
-      processingStage='Python financial processing';
-      processed=await engine(env,'process',payload);
+      const parts={};
+      for(const kind of ['pnl','bs','gl','drs']){
+       const label={pnl:'Profit & Loss',bs:'Balance Sheet',gl:'General Ledger',drs:'Daily Reporting Sheet'}[kind];
+       processingStage='parsing '+label;
+       const step=await engine(env,'parse',{month:reportMonth,kind,file:mapped[kind],config:prepared.data.payload.config});
+       if(!step.ok){
+        processed={ok:false,status:step.status,data:{error:label+' failed validation: '+String(step.data?.error||'The Python source parser returned an error.')}}
+        break;
+       }
+       parts[kind]=step.data;
+      }
+      if(!processed){
+       processingStage='accounting reconciliation';
+       processed=await engine(env,'assess',{month:reportMonth,parts,config:prepared.data.payload.config,previous:prepared.data.payload.previous,issued:prepared.data.payload.issued});
+      }
      }
     }
    }catch(error){
