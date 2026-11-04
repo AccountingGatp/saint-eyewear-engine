@@ -1,7 +1,8 @@
 """Regression coverage for the user's actual export *structures* (synthetic amounts only)."""
 from datetime import date
 import pytest
-from backend.core import daily_reporting, general_ledger, financial, DEFAULT_CONFIG, ValidationError
+import base64
+from backend.core import daily_reporting, general_ledger, financial, inspect_uploads, DEFAULT_CONFIG, ValidationError
 from openpyxl import Workbook
 import io
 
@@ -97,3 +98,23 @@ def test_balance_sheet_rejects_interim_dates():
             [], [None, "Cash", 1, None, 2, None, 3]]
     with pytest.raises(ValidationError, match="month-end"):
         financial(xlsx(rows), "Balance Sheet", "2026-10")
+
+def test_auto_identifies_four_files_independent_of_filename_or_upload_order():
+    dates = [date(2026, 8, d) for d in range(1, 32)]
+    daily = [["Date"] + dates, [], [],
+             ["Orders"] + [1]*31, [], [],
+             ["Sales"] + [100]*31, [],
+             ["Refunds"] + [0]*31]
+    drs = xlsx([], {"Daily Reporting": daily,
+                    "Productwise Sales": [[], [], [None, "Frame", 100], [None, "Total", 100]],
+                    "Countrywise Sales": [[], [], [], [None, "Australia", 100], [None, "Total", 100]]})
+    pnl = xlsx([["Profit and Loss"], ["Saint Eyewear Pty Ltd"], [],
+                ["Account", "Aug 2026", "July 2026", "June 2026"]])
+    bs = xlsx([["Balance Sheet"], ["Saint Eyewear Pty Ltd"], [],
+               ["Account", "31 Aug 2026", "31 July 2026", "30 June 2026"]])
+    gl = xlsx([["General Ledger Detail"], ["Saint Eyewear Pty Ltd"],
+               ["For the period 1 August 2026 to 31 August 2026"]])
+    uploaded = {"gl":drs, "drs":bs, "bs":pnl, "pnl":gl}
+    result = inspect_uploads({"files":{k:base64.b64encode(v).decode() for k,v in uploaded.items()}})
+    assert result["month"] == "2026-08"
+    assert result["source_map"] == {"drs":"gl", "bs":"drs", "pnl":"bs", "gl":"pnl"}
