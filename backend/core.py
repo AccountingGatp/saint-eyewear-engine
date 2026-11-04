@@ -14,14 +14,14 @@ DEFAULT_CONFIG={
  'client':'Saint Eyewear Pty Ltd','currency':'AUD','financial_year_start':7,
  'confirmed':False,
  'groups':{
-  'revenue':['Sales','Sales Revenue','Sales - Online','Revenue'],
-  'cogs':['Cost of Goods Sold','Cost of Sales','Purchases','Freight and Delivery - COGS'],
-  'marketing':['Advertising','Marketing','Facebook Ads','Google Ads','Meta Ads','Advertising & Marketing'],
-  'operating':['Software Expense','Software','Subscriptions','Professional Services','Accounting','Bookkeeping','Rent','Motor Vehicle','Bank Fees','Merchant Fees','Payment Processing Fees','Processing Fees','Wages and Salaries','Superannuation','Insurance','Telephone & Internet','Office Expenses','Travel','Depreciation','Interest Expense'],
+  'revenue':["Sales","Sales Revenue","Sales - Online","Revenue","Fees AfterPay","Fees Paypal","Fees Shopify","Merchant fees","Other Tax - US","Paypal Sales","Product Revenue - AU","Product Revenue - CA","Product Revenue - Croatia","Product Revenue - Denmark","Product Revenue - Finland","Product Revenue - France","Product Revenue - Germany","Product Revenue - Hong Kong","Product Revenue - Hungary","Product Revenue - Isle Of Man","Product Revenue - Israel","Product Revenue - Japan","Product Revenue - Other","Product Revenue - Pakistan","Product Revenue - Peru","Product Revenue - Philippines","Product Revenue - Poland","Product Revenue - Portugal","Product Revenue - Singapore","Product Revenue - Sweden","Product Revenue - Switzerland","Product Revenue - Taiwan","Product Revenue - Thailand","Product Revenue - UK","Product Revenue - US","Product Revenue - Vietnam","Product Revenue -Luxembourg","Product Revenue -NZ","Product Revenue – Austria","Product Revenue – Guernsey","Product Revenue – Ireland","Product Revenue – Italy","Product Revenue – Netherlands","Product Revenue – S Africa","Product Revenue – Spain","Product Revenuw -Belgium","Product Revune - UAE","Refunds - France","Refunds - Germany","Refunds - Netherlands","Refunds - Spain","Refund - France","Refunds – Ireland","Refunds AU","Refunds CA","Refunds NZ","Refunds Other","Refunds Peru","Refunds Singapore","Refunds UK","Refunds US","Refunds- Portugal","Refunds-Japan","Shipping Income - AU","Shipping Income - Other"],
+  'cogs':['Cost of Goods Sold','Cost of Sales','Purchases','Freight and Delivery - COGS','COGS_Processing fee','Shipping Cost'],
+  'marketing':['Advertising','Marketing','Facebook Ads','Google Ads','Meta Ads','Advertising & Marketing','Social Media Ads - AppLovin','Social Media Ads - Google','Social Media Ads - Meta','Social Media Ads - Other','Social Media Ads - Pinterest','Social Media Ads - Snapchat','Social Media Ads - Tiktok'],
+  'operating':['Bank Revaluations','Brand Protection Expense','Consulting & Accounting','Contractors- Upwork','Growth Payments','Postage & Courier','Professional Services','Rounding','Subsctiptions - Shopify','Travel - International','Travel - National','Motor Vehicle Expenses','Software Expense','Software','Subscriptions','Professional Services','Accounting','Bookkeeping','Rent','Motor Vehicle','Bank Fees','Merchant Fees','Payment Processing Fees','Processing Fees','Wages and Salaries','Superannuation','Insurance','Telephone & Internet','Office Expenses','Travel','Depreciation','Interest Expense'],
   'other_income':['Other Income','Interest Income'],
  },
  'total_labels':{'revenue':['Total Trading Income','Total Revenue','Total Sales','Total Income'], 'cogs':['Total Cost of Sales','Total Cost of Goods Sold'], 'gross':['Gross Profit'], 'net':['Net Profit','Net Profit / (Loss)','Net Profit/(Loss)'], 'net_assets':['Net Assets'],'equity':['Total Equity'],'earnings':['Current Year Earnings']},
- 'drs_sheets':['Daily Reporting','Productwise','Countrywise'],
+ 'drs_sheets':['Daily Reporting','Productwise Sales','Countrywise Sales'],
  'thresholds':{'R1_LINE':'500','R1_PROFIT':'2000','R2':'1','R4':'0.10','R5':'0.20','R6':'3','R8_PERCENT':'0.50','R8_AMOUNT':'5000','R9':'1000','R11':'0.01','R13':'2','R14':'10000'},
  'approved_templates':False,'acceptance_passed':False
 }
@@ -49,7 +49,7 @@ def shift(m,n):
  return f'{z//12:04d}-{z%12+1:02d}'
 def dt(v):
  if isinstance(v,(date,datetime)):return v.date() if isinstance(v,datetime) else v
- s=str(v or '').strip()
+ s=str(v or '').strip().replace('Sept ', 'Sep ').replace('-Sept-', '-Sep-')
  for f in ('%Y-%m-%d','%Y-%m-%dT%H:%M:%S','%d/%m/%Y','%d-%m-%Y','%d %b %Y','%d %B %Y','%d-%b-%Y','%d %b %y'):
   try:return datetime.strptime(s,f).date()
   except ValueError:pass
@@ -157,6 +157,15 @@ def financial(raw,kind,m):
    if m in [v for _,v in cols] and len(cols)>=3:candidates.append((name,rows,ri,cols))
  if len(candidates)!=1:raise ValidationError(f'{kind}: could not uniquely identify the monthly comparison header for {m}.')
  name,rows,ri,cols=candidates[0]; wanted=[m,shift(m,-1),shift(m,-2)]
+ if kind=='Balance Sheet':
+  for j,k in cols:
+   raw_date=rows[ri][j]
+   actual=dt(raw_date)
+   y,mo=map(int,k.split('-'))
+   last=date(y,mo,calendar.monthrange(y,mo)[1])
+   if actual is None or actual!=last:
+    raise ValidationError(f'Balance Sheet: {raw_date} is not the month-end {last}. Export complete calendar month-end balances.')
+
  if len({v for _,v in cols})!=len(cols):raise ValidationError(f'{kind}: duplicate month columns are ambiguous.')
  if not set(wanted).issubset(v for _,v in cols):raise ValidationError(f'{kind}: current and two consecutive prior months are required.')
  if max(v for _,v in cols)!=m:raise ValidationError(f'{kind}: latest report month differs from selected {m}.')
@@ -188,8 +197,17 @@ def general_ledger(raw,m):
  for i,r in enumerate(rows[:50]):
   h=[norm(x) for x in r]
   if 'date' in h and ('amount' in h or ('debit' in h and 'credit' in h)):header=(i,h);break
- if not header:raise ValidationError('General Ledger: Date and Amount or Debit/Credit headings required.')
+ if not header:raise ValidationError('General Ledger: Date and Amount, or Debit and Credit headings, are required.')
  ri,h=header
+ title=' '.join(str(v or '') for row in rows[:ri] for v in row)
+ # Xero exports typically state their covered period; refuse incomplete monthly exports.
+ period=re.search(r'for the period\s+(\d{1,2}\s+[A-Za-z]+\s+20\d\d)\s+to\s+(\d{1,2}\s+[A-Za-z]+\s+20\d\d)',title,re.I)
+ if period:
+  start,end=dt(period.group(1)),dt(period.group(2))
+  y,mo=map(int,m.split('-'))
+  expected_start=date(y,mo,1);expected_end=date(y,mo,calendar.monthrange(y,mo)[1])
+  if start!=expected_start or end!=expected_end:
+   raise ValidationError(f'General Ledger: export covers {period.group(1)} to {period.group(2)}; upload the complete {m} calendar month ({expected_start} to {expected_end}).')
  def idx(*names):return next((i for i,x in enumerate(h) if x in names),None)
  di=idx('date');ai=idx('account','account name');vi=idx('contact','vendor','name');desc=idx('description','details','narration');amt=idx('amount','net amount');debit=idx('debit');credit=idx('credit');ref=idx('reference');account='';tx=[]
  for rn,r in enumerate(rows[ri+1:],ri+2):
@@ -199,48 +217,82 @@ def general_ledger(raw,m):
   if not day:
    filled=[str(x).strip() for x in r if x is not None and str(x).strip()]
    if len(filled)==1 and not norm(filled[0]).startswith(('total','opening balance','closing balance')):account=filled[0]
-   elif get(di) and any(numeric(get(j)) is not None for j in (amt,debit,credit) if j is not None) and not any(k in norm(get(di)) for k in ('total','balance')):raise ValidationError(f'General Ledger: unrecognized transaction date at row {rn}.')
+   elif get(di) and any(numeric(get(j)) is not None for j in (amt,debit,credit) if j is not None) and not any(k in norm(get(di)) for k in ('total','balance')):
+    raise ValidationError(f'General Ledger: unrecognized transaction date at row {rn}.')
    continue
   if day.strftime('%Y-%m')!=m:raise ValidationError('General Ledger transaction month does not match '+m+'.')
   a=str(get(ai) or account).strip()
   if not a:raise ValidationError(f'General Ledger: account name missing at row {rn}.')
   amount=dec(get(amt)) if amt is not None else dec(get(debit))-dec(get(credit))
-  tx.append({'date':day.isoformat(),'account':a,'description':str(get(desc) or ''),'vendor':str(get(vi) or ''),'reference':str(get(ref) or ''),'amount':str(amount),'row':rn})
+  description=str(get(desc) or '')
+  # The supplied Xero GL has no vendor field; Description often contains a payee.
+  # Preserve that provenance rather than claiming the value is a verified contact.
+  vendor=str(get(vi) or description).strip()
+  tx.append({'date':day.isoformat(),'account':a,'description':description,'vendor':vendor,'vendor_inferred':vi is None,'reference':str(get(ref) or ''),'amount':str(amount),'row':rn})
  if not tx:raise ValidationError('General Ledger: no valid transactions for selected month.')
- return {'transactions':tx,'export_date':exported(rows),'count':len(tx)}
-
+ return {'transactions':tx,'export_date':exported(rows),'count':len(tx),'vendor_inferred':vi is None}
 def daily_reporting(raw,m,config):
- wb=excel(raw);names=config['drs_sheets'];missing=[x for x in names if x not in wb]
- if missing:raise ValidationError('DRS missing sheets: '+', '.join(missing))
+ wb=excel(raw)
+ # Accept both the earlier SOP names and the actual Google Sheet export names.
+ desired=config.get('drs_sheets') or ['Daily Reporting','Productwise Sales','Countrywise Sales']
+ aliases=[['Daily Reporting'],['Productwise Sales','Productwise'],['Countrywise Sales','Countrywise']]
+ names=[]
+ for i,options in enumerate(aliases):
+  choice=next((n for n in [desired[i] if i<len(desired) else '',*options] if n in wb),None)
+  if not choice:raise ValidationError('DRS missing sheet: '+ ' or '.join(options))
+  names.append(choice)
  rows=wb[names[0]]
- if len(rows)<9:raise ValidationError('DRS Daily Reporting must contain rows 4, 7 and 9.')
  candidates=[]
  for ri,row in enumerate(rows[:3]):
   cols=[(j,dt(v)) for j,v in enumerate(row) if dt(v)]
   if len(cols)>1:candidates.append((ri,cols))
- if len(candidates)!=1:raise ValidationError('DRS: could not uniquely identify daily date columns in rows 1-3. No month is guessed.')
+ if len(candidates)!=1:raise ValidationError('DRS: expected one date heading row with daily dates in rows 1-3.')
  _,cols=candidates[0]
- if any(d.strftime('%Y-%m')!=m for _,d in cols):raise ValidationError('DRS daily columns include a different reporting month.')
- if len({d for _,d in cols})!=len(cols):raise ValidationError('DRS: repeated daily date columns.')
+ if any(d.strftime('%Y-%m')!=m for _,d in cols):raise ValidationError('DRS daily dates include a different reporting month.')
+ if len({d for _,d in cols})!=len(cols):raise ValidationError('DRS: repeated daily dates.')
  expected=calendar.monthrange(int(m[:4]),int(m[5:]))[1]
- if len(cols)!=expected:raise ValidationError('DRS must include every calendar date in the selected month, even zero-sales days.')
+ dates={d.day for _,d in cols}
+ if len(cols)!=expected or dates!=set(range(1,expected+1)):
+  raise ValidationError('DRS must contain every calendar day in the selected month (including zero-sales days).')
+ labels={}
+ for i,row in enumerate(rows[:45]):
+  if row and row[0] is not None:
+   labels.setdefault(norm(row[0]),i)
+ def locate(names,description):
+  found=[labels[norm(n)] for n in names if norm(n) in labels]
+  if len(set(found))!=1:raise ValidationError(f'DRS: expected exactly one {description} row: {", ".join(names)}.')
+  return found[0]
+ order_row=locate(['Number of orders','Orders'], 'orders')
+ sales_row=locate(['Total sales (A$)','Total sales','Sales'], 'sales')
+ refund_row=locate(['Refund','Refunds'], 'refunds')
  data=[]
- for j,d in cols:
-  get=lambda r:rows[r-1][j] if j<len(rows[r-1]) else None
-  vals=[get(r) for r in (4,7,9)]
-  if any(v is None or str(v).strip()=='' for v in vals):raise ValidationError(f'DRS: missing orders, sales or refunds for {d}. Enter zero explicitly when appropriate.')
-  data.append({'date':d.isoformat(),'orders':str(dec(vals[0])),'sales':str(dec(vals[1])),'refunds':str(abs(dec(vals[2])))})
+ for j,d in sorted(cols,key=lambda item:item[1]):
+  vals=[]
+  for ri in (order_row,sales_row,refund_row):
+   v=rows[ri][j] if j<len(rows[ri]) else None
+   if v is None or str(v).strip()=='':
+    raise ValidationError(f'DRS: missing orders, sales or refunds on {d}. Enter zero explicitly where appropriate.')
+   vals.append(dec(v))
+  if vals[0]!=vals[0].to_integral_value() or vals[0]<0:raise ValidationError(f'DRS: orders must be a nonnegative integer on {d}.')
+  data.append({'date':d.isoformat(),'orders':str(vals[0]),'sales':str(vals[1]),'refunds':str(abs(vals[2]))})
  totals={k:str(sum((dec(x[k]) for x in data),Decimal(0))) for k in ('orders','sales','refunds')}
- def table(name,start,width,total_label):
-  rr=wb[name];items=[];last=None
-  for r in rr[start-1:]:
+ def table(name,start,width,totals_allowed):
+  rr=wb[name];items=[];total=None
+  for rownum,r in enumerate(rr[start-1:],start):
    cells=(r[1:1+width]+[None]*width)[:width]
    if not any(x not in (None,'') for x in cells):continue
+   if norm(cells[0]) in {norm(x) for x in totals_allowed}:
+    total=cells;break
+   # Reject unrelated footer material only after the first summary row, not every
+   # preformatted row in the client's Google Sheet workbook.
+   if cells[0] is None:continue
    items.append(cells)
-  if not items or norm(items[-1][0])!=norm(total_label):raise ValidationError(f'DRS {name}: last data row must be {total_label}.')
-  total=items.pop();return {'rows':items,'total':total}
- return {'month':m,'daily':data,'totals':totals,'products':table(names[1],3,7,'Total Sales'),'countries':table(names[2],4,3,'Total')}
-
+  if not items or total is None:
+   raise ValidationError(f'DRS {name}: no product/country rows or final Total row.')
+  return {'rows':items,'total':total}
+ return {'month':m,'daily':data,'totals':totals,
+         'products':table(names[1],3,7,['Total Sales','Total']),
+         'countries':table(names[2],4,3,['Total','Total Sales'])}
 def get_amount(rows,labels,required=True):
  hits=[(k,dec(v)) for k,v in rows.items() if norm(k) in {norm(x) for x in labels}]
  if not hits:
