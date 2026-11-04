@@ -4,6 +4,10 @@ React frontend, Cloudflare Pages gateway, private Cloudflare Python Worker, and 
 
 **Release: internal review only. This is not an approved client-reporting application.** The source preserves the draft labels and client-issue lock. A successful build does not establish SOP acceptance.
 
+## Staff upload instructions
+
+See [UPLOAD_SOP.md](UPLOAD_SOP.md) for the four required Excel files, exact Xero export periods, supported actual DRS sheet names, and troubleshooting guidance. The same instructions appear at the top of the authenticated application upload screen.
+
 ## Source layout
 
 - `frontend/`: React upload, review, history, configuration and draft-download interface.
